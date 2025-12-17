@@ -1,0 +1,5 @@
+{
+  "name": "Winky the data dump box",
+  "description": "The world's biggest antenna. A universal, soft-themed data dump box that actively listens for data from URL parameters, code injections, clipboard events, and window messages globally.",
+  "requestFramePermissions": []
+}
