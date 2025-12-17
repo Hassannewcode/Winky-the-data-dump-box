@@ -139,6 +139,11 @@ const App: React.FC = () => {
     }
   };
 
+  const deletePacket = useCallback((id: string) => {
+    setPackets(prev => prev.filter(p => p.id !== id));
+    addLog(`Signal ${id.slice(0, 4)} Purged`, "WARNING", "Manual record deletion");
+  }, [addLog]);
+
   const handleDataReceived = useCallback(async (source: PacketSource, data: string | ArrayBuffer, label?: string) => {
     if (source === PacketSource.CLIPBOARD && typeof data === 'string') {
         setClipboardHistory(prev => [{
@@ -417,7 +422,7 @@ const App: React.FC = () => {
               </div>
 
               <div className="space-y-4 pb-12">
-                 {filteredPackets.map(packet => (<PacketView key={packet.id} packet={packet} parameterAliases={config.parameterAliases} />))}
+                 {filteredPackets.map(packet => (<PacketView key={packet.id} packet={packet} parameterAliases={config.parameterAliases} onDelete={deletePacket} />))}
                  {filteredPackets.length === 0 && (
                   <div className="h-64 flex flex-col items-center justify-center text-winky-text-soft bg-winky-card/30 rounded-3xl border-2 border-dashed border-winky-border animate-pulse">
                     <Database className="w-12 h-12 mb-4 opacity-20" />
