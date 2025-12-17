@@ -1,13 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { DataPacket, PacketStatus } from '../types';
-import { Code, FileText, Globe, Shield, Tag, ChevronDown, ChevronUp, Database, Binary, Eye, Table, Copy, Check, ArrowRight, Download } from 'lucide-react';
+import { Code, FileText, Globe, Shield, Tag, ChevronDown, ChevronUp, Database, Binary, Eye, Table, Copy, Check, ArrowRight, Download, Trash2 } from 'lucide-react';
 
 interface PacketViewProps {
   packet: DataPacket;
   parameterAliases?: Record<string, string>;
+  onDelete: (id: string) => void;
 }
 
-export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases = {} }) => {
+export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases = {}, onDelete }) => {
   const [expanded, setExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<'TEXT' | 'HEX' | 'STRUCTURE'>('STRUCTURE');
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -156,6 +157,13 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
               title="Download Binary Data"
             >
               <Download className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={(e) => { e.stopPropagation(); onDelete(packet.id); }}
+              className="p-1.5 text-winky-text-soft hover:text-red-500 transition-colors rounded-lg flex items-center justify-center"
+              title="Delete Record"
+            >
+              <Trash2 className="w-4 h-4" />
             </button>
           </div>
           <button className="text-winky-text-soft hover:text-winky-text p-1">
