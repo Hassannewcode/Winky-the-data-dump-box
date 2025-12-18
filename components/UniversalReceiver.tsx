@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { PacketSource } from '../types';
-import { Radio, MessageSquare, Activity, Globe, Code2, ArrowRight, Zap, RefreshCw } from 'lucide-react';
+import { Radio, MessageSquare, Activity, Globe, Code2, ArrowRight, Zap, RefreshCw, Ghost } from 'lucide-react';
 
 interface UniversalReceiverProps {
   onDataReceived: (source: PacketSource, data: string | ArrayBuffer, label?: string) => void;
@@ -26,11 +26,12 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.size === 0) return;
 
-    // We use a signature of Key+Value to avoid duplicate ingestions in the polling loop
+    const isHeadless = urlParams.get('headless') === 'true';
     let newSignalsCaptured = 0;
 
-    if (autoScanUrlParams) {
+    if (autoScanUrlParams || isHeadless) {
       urlParams.forEach((value, key) => {
+        if (key === 'headless') return;
         const signature = `${key}:${value}`;
         if (processedParamsRef.current.has(signature)) return;
 
@@ -44,47 +45,36 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
           const alias = parameterAliases[key];
           const displayLabel = alias ? `${alias} (${key})` : key;
           
-          // DEEP LOGGING: Log every single parameter individually
-          onLog(`Captured Signal: ${key}`, "SUCCESS", alias ? `Alias: ${alias} | Data: ${value.slice(0, 30)}...` : `Data: ${value.slice(0, 30)}...`);
+          onLog(
+            isHeadless ? `Stealth Signal Captured: ${key}` : `Captured Signal: ${key}`, 
+            "SUCCESS", 
+            alias ? `Alias: ${alias} | Data: ${value.slice(0, 30)}...` : `Data: ${value.slice(0, 30)}...`
+          );
           
-          onDataReceived(PacketSource.URL_PARAM, value, displayLabel);
-          processedParamsRef.current.add(signature);
-          newSignalsCaptured++;
-        } else { 
-          onLog(`Signal Blocked: ${key}`, "WARNING", "System Rule Violation");
-          processedParamsRef.current.add(signature); // Mark as processed so we don't log the warning every second
-        }
-      });
-    } else {
-      const priorityKeys = ['payload', 'data', 'q'];
-      priorityKeys.forEach(key => {
-        const val = urlParams.get(key);
-        if (val) {
-          const signature = `${key}:${val}`;
-          if (processedParamsRef.current.has(signature)) return;
-
-          const alias = parameterAliases[key];
-          onLog(`Priority Payload: ${key}`, "TRAFFIC", alias ? `Alias: ${alias}` : "Direct Vector");
-          onDataReceived(PacketSource.URL_PARAM, val, alias ? `${alias} (${key})` : `Payload (${key})`);
+          onDataReceived(PacketSource.URL_PARAM, value, isHeadless ? `Stealth (${displayLabel})` : displayLabel);
           processedParamsRef.current.add(signature);
           newSignalsCaptured++;
         }
       });
     }
 
-    if (newSignalsCaptured > 0) {
-        onLog(`Batch Ingestion Complete`, "INFO", `${newSignalsCaptured} new signals added to database`);
+    // Headless Self-Termination Logic: If we are in a headless popup, close after ingestion
+    if (isHeadless && newSignalsCaptured > 0) {
+        onLog("Headless Protocol Complete. Self-Terminating...", "INFO");
+        // Short delay to ensure localStorage/state persistence finishes before window closes
+        setTimeout(() => {
+          if (window.opener || window.name === 'winky_stealth_frame') {
+            window.close();
+          }
+        }, 1000);
     }
   }, [autoScanUrlParams, urlFilters, parameterAliases, onDataReceived, onLog]);
 
   useEffect(() => {
     onLog("Universal Receiver: LISTENING", "INFO", "All frequencies active");
 
-    // Capture everything - No faking
     const handleMessage = (event: MessageEvent) => {
-      // Filter internal dev noise
       if (typeof event.data === 'string' && (event.data.includes('react-devtools') || event.data.includes('webpack'))) return;
-      
       onLog("postMessage Detected", "TRAFFIC", `Origin: ${event.origin}`);
       try {
         let d = typeof event.data === 'object' ? JSON.stringify(event.data, null, 2) : String(event.data);
@@ -109,10 +99,7 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
     };
     window.addEventListener('paste', handlePaste);
 
-    // Immediate initial scan on launch
     performUrlScan();
-
-    // AGGRESSIVE POLLING: Every 1 second to catch real-time redirects/system integrations
     const pollInterval = setInterval(performUrlScan, 1000); 
 
     return () => {
