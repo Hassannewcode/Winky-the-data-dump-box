@@ -1,7 +1,7 @@
 
 import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { PacketSource } from '../types';
-import { Radio, MessageSquare, Activity, Globe, Code2, ArrowRight, Zap, RefreshCw, Ghost, ShieldCheck } from 'lucide-react';
+import { Radio, MessageSquare, Activity, Globe, Code2, ArrowRight, Zap, RefreshCw, Ghost, ShieldCheck, Wifi, Cpu } from 'lucide-react';
 
 interface UniversalReceiverProps {
   onDataReceived: (source: PacketSource, data: string | ArrayBuffer, label?: string) => void;
@@ -21,6 +21,7 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
   parameterAliases
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [swStatus, setSwStatus] = useState<'IDLE' | 'ACTIVE' | 'ERROR'>('IDLE');
   const processedParamsRef = useRef<Set<string>>(new Set());
 
   const performUrlScan = useCallback(() => {
@@ -30,53 +31,72 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
     const isHeadless = urlParams.get('headless') === 'true';
     let newSignalsCaptured = 0;
 
-    if (autoScanUrlParams || isHeadless) {
-      urlParams.forEach((value, key) => {
-        if (key === 'headless') return;
-        const signature = `${key}:${value}`;
-        if (processedParamsRef.current.has(signature)) return;
+    urlParams.forEach((value, key) => {
+      if (key === 'headless' || key === 'payload' || key === 'data') return;
+      const signature = `${key}:${value}`;
+      if (processedParamsRef.current.has(signature)) return;
 
-        let skip = false;
-        if (urlFilters.enabled) {
-          if (urlFilters.deniedKeys.includes(key)) skip = true;
-          if (urlFilters.allowedKeys.length > 0 && !urlFilters.allowedKeys.includes(key)) skip = true;
+      let skip = false;
+      if (urlFilters.enabled) {
+        if (urlFilters.deniedKeys.includes(key)) skip = true;
+        if (urlFilters.allowedKeys.length > 0 && !urlFilters.allowedKeys.includes(key)) skip = true;
+      }
+      
+      if (!skip) {
+        const alias = parameterAliases[key];
+        const displayLabel = alias ? `${alias} (${key})` : key;
+        
+        if (isHeadless) {
+          onLog(`[HEADLESS_VECT] Capture: ${displayLabel}`, "SUCCESS", `Secure Ingest: ${value.slice(0, 50)}...`);
+        } else {
+          onLog(`Signal Captured: ${displayLabel}`, "SUCCESS", `Data: ${value.slice(0, 30)}...`);
         }
         
-        if (!skip) {
-          const alias = parameterAliases[key];
-          const displayLabel = alias ? `${alias} (${key})` : key;
-          
-          if (isHeadless) {
-            onLog(`[HEADLESS_VECT] Capture: ${displayLabel}`, "SUCCESS", `Secure Ingest: ${value.slice(0, 50)}...`);
-          } else {
-            onLog(`Signal Captured: ${displayLabel}`, "SUCCESS", `Data: ${value.slice(0, 30)}...`);
-          }
-          
-          onDataReceived(PacketSource.URL_PARAM, value, isHeadless ? `Stealth (${displayLabel})` : displayLabel);
-          processedParamsRef.current.add(signature);
-          newSignalsCaptured++;
-        }
-      });
-    }
+        onDataReceived(PacketSource.URL_PARAM, value, isHeadless ? `Stealth (${displayLabel})` : displayLabel);
+        processedParamsRef.current.add(signature);
+        newSignalsCaptured++;
+      }
+    });
 
-    // Robust Headless Termination
+    // Special check for direct ?payload or ?data params
+    ['payload', 'data'].forEach(key => {
+        const val = urlParams.get(key);
+        if (val && !processedParamsRef.current.has(`${key}:${val}`)) {
+            onDataReceived(PacketSource.URL_PARAM, val, "Direct Payload Injection");
+            onLog("Direct Ingest Intercepted", "SUCCESS", "URL Parameter 'payload' used");
+            processedParamsRef.current.add(`${key}:${val}`);
+        }
+    });
+
     if (isHeadless && newSignalsCaptured > 0) {
         onLog("Headless Protocol Finalizing...", "INFO", "Committing to persistence...");
-        // Ensure state commits before destruction
         setTimeout(() => {
           onLog("Terminating Session", "TRAFFIC", "Window close triggered");
           if (window.opener || window.name === 'winky_stealth_frame' || window.parent !== window) {
             window.close();
           } else {
-             // If it's a direct tab but marked headless, we still try to close but provide a UI feedback
              onLog("Termination Failed: Tab Locked", "WARNING", "System cannot close primary tab via script");
           }
         }, 1500);
     }
-  }, [autoScanUrlParams, urlFilters, parameterAliases, onDataReceived, onLog]);
+  }, [urlFilters, parameterAliases, onDataReceived, onLog]);
 
   useEffect(() => {
     onLog("System Boot: LISTENING", "INFO", "All spectral frequencies active");
+
+    // Service Worker Status
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(() => setSwStatus('ACTIVE'));
+        
+        const handleSwMessage = (event: MessageEvent) => {
+            if (event.data?.type === 'BACKGROUND_INGEST') {
+                onLog("Background Intercepted", "TRAFFIC", `Origin: ${event.data.origin}`);
+                onDataReceived(PacketSource.BACKGROUND_PROXY, event.data.data, `ServiceWorker Proxy`);
+            }
+        };
+        navigator.serviceWorker.addEventListener('message', handleSwMessage);
+        return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+    }
 
     const handleMessage = (event: MessageEvent) => {
       if (typeof event.data === 'string' && (event.data.includes('react-devtools') || event.data.includes('webpack'))) return;
@@ -105,7 +125,6 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
     window.addEventListener('paste', handlePaste);
 
     performUrlScan();
-    // High-frequency scan for state changes in URL
     const pollInterval = setInterval(performUrlScan, 500); 
 
     return () => {
@@ -149,34 +168,40 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
       >
         <div className="flex flex-col items-center justify-center text-center space-y-6 py-4 relative z-10">
           <div className="relative group cursor-pointer" onClick={performUrlScan}>
-            <div className="absolute inset-0 bg-winky-blue/20 blur-3xl rounded-full animate-pulse group-hover:bg-winky-pink/30 transition-colors"></div>
+            <div className={`absolute inset-0 blur-3xl rounded-full animate-pulse transition-colors ${swStatus === 'ACTIVE' ? 'bg-emerald-500/20' : 'bg-winky-blue/20'}`}></div>
             <div className="w-24 h-24 bg-winky-card rounded-full flex items-center justify-center shadow-glow border border-winky-border relative z-10 group-active:scale-95 transition-transform">
-               <Radio className={`w-12 h-12 text-winky-blue ${isDragOver ? 'animate-bounce' : 'animate-pulse'}`} />
+               <Radio className={`w-12 h-12 ${isDragOver ? 'animate-bounce text-winky-pink' : 'animate-pulse text-winky-blue'}`} />
             </div>
           </div>
           <div>
             <h3 className="text-2xl font-bold text-winky-text tracking-tight">Signal Singularity</h3>
-            <p className="text-[10px] text-winky-text-soft mt-2 uppercase tracking-[0.3em] font-black">Frequency: <span className="text-emerald-500 animate-pulse">INFINITE_SCAN</span></p>
+            <div className="flex items-center justify-center gap-2 mt-2">
+                 <div className={`w-2 h-2 rounded-full ${swStatus === 'ACTIVE' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></div>
+                 <p className="text-[10px] text-winky-text-soft uppercase tracking-[0.3em] font-black">
+                   Status: <span className={swStatus === 'ACTIVE' ? 'text-emerald-500' : ''}>{swStatus === 'ACTIVE' ? 'HOT_LISTENER' : 'BOOTING'}</span>
+                 </p>
+            </div>
           </div>
           <div className="flex flex-wrap justify-center gap-2 w-full max-w-xs">
-             <div className="flex items-center gap-1.5 text-[9px] font-bold text-winky-text-soft bg-winky-bg px-3 py-2 rounded-xl border border-winky-border hover:border-winky-pink transition-colors cursor-default"><Globe className="w-3 h-3 text-winky-pink" /><span>ADDR_BAR</span></div>
-             <div className="flex items-center gap-1.5 text-[9px] font-bold text-winky-text-soft bg-winky-bg px-3 py-2 rounded-xl border border-winky-border hover:border-winky-blue transition-colors cursor-default"><ShieldCheck className="w-3 h-3 text-winky-blue" /><span>POST_MSG</span></div>
-             <div className="flex items-center gap-1.5 text-[9px] font-bold text-winky-text-soft bg-winky-bg px-3 py-2 rounded-xl border border-winky-border hover:border-amber-500 transition-colors cursor-default"><Activity className="w-3 h-3 text-amber-500" /><span>BRDCAST</span></div>
+             <div className="flex items-center gap-1.5 text-[9px] font-bold text-winky-text-soft bg-winky-bg px-3 py-2 rounded-xl border border-winky-border hover:border-winky-pink transition-colors cursor-default"><Globe className="w-3 h-3 text-winky-pink" /><span>FETCH_HOOK</span></div>
+             <div className="flex items-center gap-1.5 text-[9px] font-bold text-winky-text-soft bg-winky-bg px-3 py-2 rounded-xl border border-winky-border hover:border-winky-blue transition-colors cursor-default"><ShieldCheck className="w-3 h-3 text-winky-blue" /><span>PROXY_NET</span></div>
+             <div className="flex items-center gap-1.5 text-[9px] font-bold text-winky-text-soft bg-winky-bg px-3 py-2 rounded-xl border border-winky-border hover:border-emerald-500 transition-colors cursor-default"><Wifi className="w-3 h-3 text-emerald-500" /><span>SILENT_BEACON</span></div>
           </div>
         </div>
       </div>
       <div className="bg-winky-card rounded-3xl p-5 shadow-soft border border-winky-border flex items-center justify-between transition-all hover:border-winky-blue/40 hover:shadow-lg group">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-winky-blue/10 rounded-2xl group-hover:scale-110 group-hover:bg-winky-blue/20 transition-all">
-              <Zap className="w-6 h-6 text-winky-blue" />
+            <div className="p-3 bg-emerald-500/10 rounded-2xl group-hover:scale-110 group-hover:bg-emerald-500/20 transition-all">
+              <Cpu className="w-6 h-6 text-emerald-500" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-winky-text">Ingestion Vector Docs</h4>
-              <p className="text-[10px] text-winky-text-soft uppercase font-bold tracking-wider">Expand Connection Range</p>
+              <h4 className="text-sm font-bold text-winky-text">Silent Delivery Vector</h4>
+              <p className="text-[10px] text-winky-text-soft uppercase font-bold tracking-wider">Background Fetch Manual</p>
             </div>
           </div>
-          <button onClick={onOpenDocs} className="px-5 py-2.5 bg-winky-bg border border-winky-border rounded-2xl text-[10px] font-black text-winky-text hover:bg-slate-50 transition-all flex items-center gap-2 uppercase tracking-widest shadow-sm">Protocol Manual <ArrowRight className="w-3 h-3" /></button>
+          <button onClick={onOpenDocs} className="px-5 py-2.5 bg-winky-bg border border-winky-border rounded-2xl text-[10px] font-black text-winky-text hover:bg-slate-50 transition-all flex items-center gap-2 uppercase tracking-widest shadow-sm">View Protcols <ArrowRight className="w-3 h-3" /></button>
       </div>
     </div>
   );
 };
+
