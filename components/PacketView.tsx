@@ -62,17 +62,25 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
 
   const downloadRaw = () => {
     let blob: Blob;
-    let fileName = `winky_dump_${packet.id.slice(0, 8)}`;
-    let extension = ".txt";
+    let fileName = `winky_signal_${packet.id.slice(0, 8)}`;
+    let extension = ".bin";
 
     if (packet.rawContent instanceof ArrayBuffer) {
       blob = new Blob([packet.rawContent], { type: 'application/octet-stream' });
       extension = ".bin";
     } else {
       blob = new Blob([packet.rawContent || ""], { type: 'text/plain' });
-      const dt = packet.analysis?.dataType?.toLowerCase() || "";
+      const dt = (packet.analysis?.dataType || "").toLowerCase();
+      
+      // Extensive extension mapping based on AI analysis
       if (dt.includes("json")) extension = ".json";
-      else if (dt.includes("source code") || dt.includes("javascript")) extension = ".js";
+      else if (dt.includes("javascript") || dt.includes("source code")) extension = ".js";
+      else if (dt.includes("python")) extension = ".py";
+      else if (dt.includes("html")) extension = ".html";
+      else if (dt.includes("css")) extension = ".css";
+      else if (dt.includes("csv")) extension = ".csv";
+      else if (dt.includes("log")) extension = ".log";
+      else if (dt.includes("text")) extension = ".txt";
     }
 
     const url = URL.createObjectURL(blob);
@@ -91,7 +99,6 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
     if (typeof packet.rawContent === 'string') {
         content = packet.rawContent;
     } else if (packet.rawContent instanceof ArrayBuffer) {
-        // Hex dump for binary copy
         content = hexDump;
     }
     
@@ -125,7 +132,7 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
           <div className="min-w-0">
              <div className="flex items-center gap-2">
                 <span className="font-bold text-winky-text text-sm truncate uppercase tracking-tight">
-                  {packet.analysis?.dataType || (isBinary ? "Binary Ingest" : "Signal Record")}
+                  {packet.analysis?.dataType || (isBinary ? "Binary Stream" : "Data Record")}
                 </span>
                 {packet.label && (
                    <span className="text-[10px] font-bold bg-winky-bg border border-winky-border px-1.5 py-0.5 rounded text-winky-text-soft truncate max-w-[150px]">
@@ -134,7 +141,7 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
                 )}
              </div>
              <div className="text-[10px] text-winky-text-soft font-bold mt-1 flex items-center gap-2 uppercase tracking-widest">
-               {new Date(packet.timestamp).toLocaleString()} 
+               {new Date(packet.timestamp).toLocaleTimeString()} 
                <span>•</span> 
                {packet.size.toLocaleString()} BYTES
              </div>
@@ -154,14 +161,14 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
             <button 
               onClick={(e) => { e.stopPropagation(); downloadRaw(); }}
               className="p-1.5 text-winky-text-soft hover:text-winky-blue transition-colors rounded-lg flex items-center justify-center"
-              title="Download Binary Data"
+              title="Download Raw Signal"
             >
               <Download className="w-4 h-4" />
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); onDelete(packet.id); }}
               className="p-1.5 text-winky-text-soft hover:text-red-500 transition-colors rounded-lg flex items-center justify-center"
-              title="Delete Record"
+              title="Purge Record"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -179,13 +186,13 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
             {packet.analysis && (
               <div className="bg-winky-card p-5 rounded-2xl border border-winky-border shadow-sm">
                 <div className="flex justify-between items-center mb-3">
-                  <h4 className="text-[10px] font-black text-winky-text-soft uppercase tracking-widest">Analysis Matrix</h4>
+                  <h4 className="text-[10px] font-black text-winky-text-soft uppercase tracking-widest">Signal Analysis</h4>
                   <div className="flex gap-2">
                     <button onClick={copyPacketContent} className="text-[10px] font-bold text-winky-blue flex items-center gap-1 hover:underline">
-                      <Copy className="w-3 h-3" /> COPY_RAW
+                      <Copy className="w-3 h-3" /> COPY
                     </button>
                     <button onClick={downloadRaw} className="text-[10px] font-bold text-winky-blue flex items-center gap-1 hover:underline">
-                      <Download className="w-3 h-3" /> EXPORT_BIN
+                      <Download className="w-3 h-3" /> EXPORT
                     </button>
                   </div>
                 </div>
@@ -195,7 +202,7 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
                 {packet.analysis.tags && (
                   <div className="flex flex-wrap gap-2 mt-4">
                     {packet.analysis.tags.map(tag => (
-                      <span key={tag} className="px-2.5 py-1 bg-winky-blue-light dark:bg-winky-blue/10 text-winky-blue text-[10px] rounded-lg font-black flex items-center gap-1.5 border border-winky-blue/10 uppercase tracking-tighter">
+                      <span key={tag} className="px-2.5 py-1 bg-winky-blue-light dark:bg-winky-blue/10 text-winky-blue text-[10px] rounded-lg font-black border border-winky-blue/10 uppercase tracking-tighter">
                         <Tag className="w-3 h-3" /> {tag}
                       </span>
                     ))}
@@ -205,14 +212,14 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
             )}
 
             <div className="flex items-center justify-between">
-               <h4 className="text-[10px] font-black text-winky-text-soft uppercase tracking-widest">Captured Bytes</h4>
+               <h4 className="text-[10px] font-black text-winky-text-soft uppercase tracking-widest">Raw Payload</h4>
                <div className="flex bg-winky-card rounded-xl p-1 border border-winky-border shadow-sm">
                   {hasStructure && (
                     <button 
                       onClick={() => setViewMode('STRUCTURE')}
                       className={`px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 transition-all ${viewMode === 'STRUCTURE' ? 'bg-winky-bg text-winky-text shadow-sm' : 'text-winky-text-soft hover:text-winky-text'}`}
                     >
-                      <Table className="w-3 h-3" /> STRUCT
+                      <Table className="w-3 h-3" /> SCHEMA
                     </button>
                   )}
                   <button 
@@ -220,13 +227,13 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 transition-all ${viewMode === 'TEXT' ? 'bg-winky-bg text-winky-text shadow-sm' : 'text-winky-text-soft hover:text-winky-text'}`}
                     disabled={isBinary}
                   >
-                    <Eye className="w-3 h-3" /> STRING
+                    <Eye className="w-3 h-3" /> TEXT
                   </button>
                   <button 
                     onClick={() => setViewMode('HEX')}
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 transition-all ${viewMode === 'HEX' ? 'bg-winky-bg text-winky-text shadow-sm' : 'text-winky-text-soft hover:text-winky-text'}`}
                   >
-                    <Binary className="w-3 h-3" /> HEXDUMP
+                    <Binary className="w-3 h-3" /> HEX
                   </button>
                </div>
             </div>
@@ -236,8 +243,8 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
                   <table className="w-full text-left text-xs">
                     <thead className="bg-winky-bg border-b border-winky-border">
                       <tr>
-                        <th className="p-4 font-black text-winky-text-soft uppercase tracking-widest text-[9px]">ID_KEY</th>
-                        <th className="p-4 font-black text-winky-text-soft uppercase tracking-widest text-[9px]">RAW_VALUE</th>
+                        <th className="p-4 font-black text-winky-text-soft uppercase tracking-widest text-[9px]">Field</th>
+                        <th className="p-4 font-black text-winky-text-soft uppercase tracking-widest text-[9px]">Value</th>
                         <th className="p-4 w-12"></th>
                       </tr>
                     </thead>
@@ -278,12 +285,12 @@ export const PacketView: React.FC<PacketViewProps> = ({ packet, parameterAliases
                 <button 
                   onClick={copyPacketContent}
                   className="absolute top-4 right-4 p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-all shadow-lg"
-                  title="Copy Signal Data"
+                  title="Copy All"
                 >
                   {packetCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                 </button>
                 <pre className="text-[11px] font-mono text-emerald-400 leading-relaxed whitespace-pre font-medium max-h-96 custom-scrollbar">
-                  {viewMode === 'TEXT' ? (typeof packet.rawContent === 'string' ? packet.rawContent : '[BINARY_DATA_RECORDS]') : hexDump}
+                  {viewMode === 'TEXT' ? (typeof packet.rawContent === 'string' ? packet.rawContent : '[BINARY_STREAM]') : hexDump}
                 </pre>
               </div>
             )}
