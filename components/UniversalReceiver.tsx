@@ -24,16 +24,24 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
   const [swStatus, setSwStatus] = useState<'IDLE' | 'ACTIVE' | 'ERROR'>('IDLE');
   const processedParamsRef = useRef<Set<string>>(new Set());
 
+  const handleIncomingData = useCallback((source: PacketSource, data: string | ArrayBuffer, label?: string) => {
+    // Deduplication check for background pulses (often sent via multiple channels for reliability)
+    const signature = `${source}:${typeof data === 'string' ? data.slice(0, 100) : 'binary'}`;
+    if (processedParamsRef.current.has(signature)) return;
+    
+    onDataReceived(source, data, label);
+    processedParamsRef.current.add(signature);
+    // Cleanup old signatures to prevent memory leaks
+    if (processedParamsRef.current.size > 500) processedParamsRef.current.clear();
+  }, [onDataReceived]);
+
   const performUrlScan = useCallback(() => {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.size === 0) return;
 
-    const isHeadless = urlParams.get('headless') === 'true';
-    let newSignalsCaptured = 0;
-
     urlParams.forEach((value, key) => {
       if (key === 'headless' || key === 'payload' || key === 'data') return;
-      const signature = `${key}:${value}`;
+      const signature = `URL:${key}:${value}`;
       if (processedParamsRef.current.has(signature)) return;
 
       let skip = false;
@@ -45,100 +53,86 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
       if (!skip) {
         const alias = parameterAliases[key];
         const displayLabel = alias ? `${alias} (${key})` : key;
-        
-        if (isHeadless) {
-          onLog(`[HEADLESS_VECT] Capture: ${displayLabel}`, "SUCCESS", `Secure Ingest: ${value.slice(0, 50)}...`);
-        } else {
-          onLog(`Signal Captured: ${displayLabel}`, "SUCCESS", `Data: ${value.slice(0, 30)}...`);
-        }
-        
-        onDataReceived(PacketSource.URL_PARAM, value, isHeadless ? `Stealth (${displayLabel})` : displayLabel);
-        processedParamsRef.current.add(signature);
-        newSignalsCaptured++;
+        onLog(`Signal Captured: ${displayLabel}`, "SUCCESS", `Data: ${value.slice(0, 30)}...`);
+        handleIncomingData(PacketSource.URL_PARAM, value, displayLabel);
       }
     });
 
-    // Special check for direct ?payload or ?data params
     ['payload', 'data'].forEach(key => {
         const val = urlParams.get(key);
-        if (val && !processedParamsRef.current.has(`${key}:${val}`)) {
-            onDataReceived(PacketSource.URL_PARAM, val, "Direct Payload Injection");
-            onLog("Direct Ingest Intercepted", "SUCCESS", "URL Parameter 'payload' used");
-            processedParamsRef.current.add(`${key}:${val}`);
+        if (val && !processedParamsRef.current.has(`URL:${key}:${val}`)) {
+            handleIncomingData(PacketSource.URL_PARAM, val, "URL Injection");
+            onLog("URL Parameter Ingest", "SUCCESS", `Source: ?${key}=`);
         }
     });
-
-    if (isHeadless && newSignalsCaptured > 0) {
-        onLog("Headless Protocol Finalizing...", "INFO", "Committing to persistence...");
-        setTimeout(() => {
-          onLog("Terminating Session", "TRAFFIC", "Window close triggered");
-          if (window.opener || window.name === 'winky_stealth_frame' || window.parent !== window) {
-            window.close();
-          } else {
-             onLog("Termination Failed: Tab Locked", "WARNING", "System cannot close primary tab via script");
-          }
-        }, 1500);
-    }
-  }, [urlFilters, parameterAliases, onDataReceived, onLog]);
+  }, [urlFilters, parameterAliases, handleIncomingData, onLog]);
 
   useEffect(() => {
-    onLog("System Boot: LISTENING", "INFO", "All spectral frequencies active");
+    onLog("System Boot: LISTENING", "INFO", "Awaiting background transmissions...");
 
-    // Service Worker Status
+    // 1. Service Worker Listener (Handles direct postMessage from sw.js)
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.ready.then(() => setSwStatus('ACTIVE'));
         
         const handleSwMessage = (event: MessageEvent) => {
             if (event.data?.type === 'BACKGROUND_INGEST') {
-                onLog("Background Intercepted", "TRAFFIC", `Origin: ${event.data.origin}`);
-                onDataReceived(PacketSource.BACKGROUND_PROXY, event.data.data, `ServiceWorker Proxy`);
+                onLog("Background Pulse Received", "TRAFFIC", `Origin: ${event.data.origin}`);
+                handleIncomingData(PacketSource.BACKGROUND_PROXY, event.data.data, `SW_VECTOR`);
             }
         };
         navigator.serviceWorker.addEventListener('message', handleSwMessage);
-        return () => navigator.serviceWorker.removeEventListener('message', handleSwMessage);
     }
 
-    const handleMessage = (event: MessageEvent) => {
-      if (typeof event.data === 'string' && (event.data.includes('react-devtools') || event.data.includes('webpack'))) return;
-      onLog("postMessage Intercepted", "TRAFFIC", `Origin: ${event.origin}`);
-      try {
-        let d = typeof event.data === 'object' ? JSON.stringify(event.data, null, 2) : String(event.data);
-        if (d && d !== '{}') onDataReceived(PacketSource.WINDOW_MESSAGE, d, `Origin: ${event.origin}`);
-      } catch (e) { onLog("Message Corrupted", "ERROR", "Decoding failure"); }
-    };
-    window.addEventListener('message', handleMessage);
-    
+    // 2. BroadcastChannel Listener (Handles data from other tabs or the Service Worker bridge)
     const channel = new BroadcastChannel('winky_channel');
     channel.onmessage = (event) => {
-      onLog("Inter-Process Pulse Intercepted", "TRAFFIC", "BroadcastChannel activity detected");
-      const content = typeof event.data === 'object' ? JSON.stringify(event.data) : String(event.data);
-      onDataReceived(PacketSource.BROADCAST, content, 'Local Cluster Sync');
+      if (event.data?.type === 'BACKGROUND_INGEST') {
+          onLog("Broadcast Ingest Detected", "TRAFFIC", "Captured via Winky_Bridge");
+          handleIncomingData(PacketSource.BACKGROUND_PROXY, event.data.data, `BC_VECTOR`);
+      } else {
+          const content = typeof event.data === 'object' ? JSON.stringify(event.data) : String(event.data);
+          handleIncomingData(PacketSource.BROADCAST, content, 'Local Cluster Sync');
+      }
     };
 
+    // 3. postMessage Listener (Standard window communication)
+    const handleWindowMessage = (event: MessageEvent) => {
+      if (typeof event.data === 'string' && (event.data.includes('react-devtools') || event.data.includes('webpack'))) return;
+      try {
+        let d = typeof event.data === 'object' ? JSON.stringify(event.data, null, 2) : String(event.data);
+        if (d && d !== '{}') {
+          onLog("postMessage Intercepted", "TRAFFIC", `Origin: ${event.origin}`);
+          handleIncomingData(PacketSource.WINDOW_MESSAGE, d, `Origin: ${event.origin}`);
+        }
+      } catch (e) {}
+    };
+    window.addEventListener('message', handleWindowMessage);
+
+    // 4. Clipboard Listener
     const handlePaste = (event: ClipboardEvent) => {
       const text = event.clipboardData?.getData('text');
       if (text) {
-        onLog("Clipboard Infiltration", "TRAFFIC", `${text.length} bytes captured`);
-        onDataReceived(PacketSource.CLIPBOARD, text, 'Clipboard Pulse');
+        onLog("Clipboard Capture", "TRAFFIC", `${text.length} bytes`);
+        handleIncomingData(PacketSource.CLIPBOARD, text, 'Clipboard Pulse');
       }
     };
     window.addEventListener('paste', handlePaste);
 
     performUrlScan();
-    const pollInterval = setInterval(performUrlScan, 500); 
+    const pollInterval = setInterval(performUrlScan, 1000); 
 
     return () => {
-      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('message', handleWindowMessage);
       window.removeEventListener('paste', handlePaste);
       channel.close();
       clearInterval(pollInterval);
     };
-  }, [performUrlScan, onLog, onDataReceived]);
+  }, [performUrlScan, onLog, handleIncomingData]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    onLog("External Disk Source Detected", "TRAFFIC", "Processing binary stream...");
+    onLog("Physical File Ingest", "TRAFFIC", "Analyzing binary stream...");
     Array.from(e.dataTransfer.files).forEach((file: File) => {
       const r = new FileReader();
       r.onload = (ev) => {
@@ -146,17 +140,15 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
         if (res instanceof ArrayBuffer) {
            try {
              const d = new TextDecoder('utf-8', { fatal: true }).decode(res);
-             onDataReceived(PacketSource.FILE_DROP, d, `File: ${file.name}`);
-             onLog(`Ingested File (Text): ${file.name}`, "SUCCESS");
+             handleIncomingData(PacketSource.FILE_DROP, d, file.name);
            } catch {
-             onDataReceived(PacketSource.FILE_DROP, res, `Blob: ${file.name}`);
-             onLog(`Ingested File (Binary): ${file.name}`, "SUCCESS");
+             handleIncomingData(PacketSource.FILE_DROP, res, file.name);
            }
         }
       };
       r.readAsArrayBuffer(file);
     });
-  }, [onDataReceived, onLog]);
+  }, [handleIncomingData, onLog]);
 
   return (
     <div className="space-y-6">
@@ -178,7 +170,7 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
             <div className="flex items-center justify-center gap-2 mt-2">
                  <div className={`w-2 h-2 rounded-full ${swStatus === 'ACTIVE' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></div>
                  <p className="text-[10px] text-winky-text-soft uppercase tracking-[0.3em] font-black">
-                   Status: <span className={swStatus === 'ACTIVE' ? 'text-emerald-500' : ''}>{swStatus === 'ACTIVE' ? 'HOT_LISTENER' : 'BOOTING'}</span>
+                   Background Receiver: <span className={swStatus === 'ACTIVE' ? 'text-emerald-500' : ''}>{swStatus === 'ACTIVE' ? 'READY' : 'BOOTING'}</span>
                  </p>
             </div>
           </div>
@@ -195,11 +187,11 @@ export const UniversalReceiver: React.FC<UniversalReceiverProps> = ({
               <Cpu className="w-6 h-6 text-emerald-500" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-winky-text">Silent Delivery Vector</h4>
-              <p className="text-[10px] text-winky-text-soft uppercase font-bold tracking-wider">Background Fetch Manual</p>
+              <h4 className="text-sm font-bold text-winky-text">No-Redirect Protocols</h4>
+              <p className="text-[10px] text-winky-text-soft uppercase font-bold tracking-wider">Active Background listener</p>
             </div>
           </div>
-          <button onClick={onOpenDocs} className="px-5 py-2.5 bg-winky-bg border border-winky-border rounded-2xl text-[10px] font-black text-winky-text hover:bg-slate-50 transition-all flex items-center gap-2 uppercase tracking-widest shadow-sm">View Protcols <ArrowRight className="w-3 h-3" /></button>
+          <button onClick={onOpenDocs} className="px-5 py-2.5 bg-winky-bg border border-winky-border rounded-2xl text-[10px] font-black text-winky-text hover:bg-slate-50 transition-all flex items-center gap-2 uppercase tracking-widest shadow-sm">Protocol Manual <ArrowRight className="w-3 h-3" /></button>
       </div>
     </div>
   );
