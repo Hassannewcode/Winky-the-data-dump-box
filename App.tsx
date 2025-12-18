@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { UniversalReceiver } from './components/UniversalReceiver';
 import { PacketView } from './components/PacketView';
@@ -6,6 +7,7 @@ import { ApiDocs } from './components/ApiDocs';
 import { DataVisualizer } from './components/DataVisualizer';
 import { ClipboardHistory } from './components/ClipboardHistory';
 import { UrlInspector } from './components/UrlInspector';
+import { StealthPulse } from './components/StealthPulse';
 import { DataPacket, PacketSource, PacketStatus, FilterType, SignalLogEntry, SystemConfig } from './types';
 import { analyzeDataPacket } from './services/systemAnalysis';
 import { Search, Database, Globe2, Inbox, Activity, BookOpen, Settings, X, Save, LayoutDashboard, Server, Moon, Sun, Monitor, Plus, Trash2, Link2, Tag, ArrowRight, Download, Trash } from 'lucide-react';
@@ -20,6 +22,10 @@ const STORAGE_KEYS = {
 };
 
 const App: React.FC = () => {
+  // --- STEALTH LOGIC STATE ---
+  const [isStealthMode, setIsStealthMode] = useState(false);
+  const [stealthStatus, setStealthStatus] = useState<'INGESTING' | 'SUCCESS' | 'ERROR'>('INGESTING');
+
   // Load initial state from LocalStorage for "Database" persistence
   const [packets, setPackets] = useState<DataPacket[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.PACKETS);
@@ -40,10 +46,10 @@ const App: React.FC = () => {
     const saved = localStorage.getItem(STORAGE_KEYS.CONFIG);
     return saved ? JSON.parse(saved) : {
       autoAnalyze: true,
-      maxRetention: 500, // Increased for database feel
+      maxRetention: 500,
       notifications: true,
       theme: 'LIGHT',
-      autoScanUrlParams: true, // Default to true for "Scan Everything"
+      autoScanUrlParams: true,
       parameterAliases: {},
       urlFilters: {
           enabled: false,
@@ -78,26 +84,6 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(config));
   }, [config]);
 
-  // --- Keyboard Shortcuts ---
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault();
-        setShowConfig(prev => !prev);
-      }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'U') {
-        e.preventDefault();
-        setShowUrlInspector(prev => !prev);
-      }
-      if (e.key === 'Escape') {
-        setShowConfig(false);
-        setShowUrlInspector(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
   // --- Theme Application ---
   useEffect(() => {
     const applyTheme = () => {
@@ -110,15 +96,7 @@ const App: React.FC = () => {
       else root.classList.remove('dark');
     };
     applyTheme();
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = () => { if(config.theme === 'SYSTEM') applyTheme(); };
-    mediaQuery.addEventListener('change', handler);
-    return () => mediaQuery.removeEventListener('change', handler);
   }, [config.theme]);
-
-  useEffect(() => {
-    addLog("Winky Singularity Initialized", "INFO", `Database Status: ${packets.length} signals recovered`);
-  }, []);
 
   const addLog = useCallback((message: string, type: SignalLogEntry['type'], detail?: string) => {
     setLogs(prev => [...prev, {
@@ -129,20 +107,6 @@ const App: React.FC = () => {
       detail
     }].slice(-500)); 
   }, []);
-
-  const clearDatabase = () => {
-    if (window.confirm("ARE YOU SURE? This will purge all captured signals from the local database forever.")) {
-      setPackets([]);
-      setLogs([]);
-      setClipboardHistory([]);
-      addLog("Database Purged", "WARNING", "All local records deleted");
-    }
-  };
-
-  const deletePacket = useCallback((id: string) => {
-    setPackets(prev => prev.filter(p => p.id !== id));
-    addLog(`Signal ${id.slice(0, 4)} Purged`, "WARNING", "Manual record deletion");
-  }, [addLog]);
 
   const handleDataReceived = useCallback(async (source: PacketSource, data: string | ArrayBuffer, label?: string) => {
     if (source === PacketSource.CLIPBOARD && typeof data === 'string') {
@@ -178,6 +142,50 @@ const App: React.FC = () => {
     }
   }, [config.maxRetention, config.autoAnalyze]);
 
+  // --- HIGH SPEED STEALTH PROTOCOL ---
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const payload = params.get('payload') || params.get('data') || params.get('q');
+    
+    // Check if we are in a payload context
+    if (payload) {
+      // Scene Before: Determine if we should show the ghost overlay
+      setIsStealthMode(true);
+      setStealthStatus('INGESTING');
+
+      // Process ingestion immediately
+      handleDataReceived(PacketSource.URL_PARAM, payload, 'Headless Deep Link');
+      addLog("Stealth Signal Intercepted", "SUCCESS", "Fast Ingest Triggered");
+
+      // Set to success after a brief visual confirmation delay
+      const successTimer = setTimeout(() => {
+        setStealthStatus('SUCCESS');
+        
+        // Scene After: Determine exit strategy
+        const exitTimer = setTimeout(() => {
+          const redirectUri = params.get('redirect') || params.get('cb') || document.referrer;
+          
+          if (redirectUri && redirectUri !== window.location.href) {
+            window.location.replace(redirectUri);
+          } else {
+            // Try closing if opened via script, otherwise show completion
+            try {
+              window.close();
+            } catch (e) {
+              // Fallback: Just clear params to show clean app
+              window.history.replaceState({}, document.title, window.location.pathname);
+              setIsStealthMode(false);
+            }
+          }
+        }, 800); // Quick close delay
+
+        return () => clearTimeout(exitTimer);
+      }, 700); // Visual capture delay
+
+      return () => clearTimeout(successTimer);
+    }
+  }, [handleDataReceived, addLog]);
+
   const processAnalysis = async (packet: DataPacket, data: string | ArrayBuffer, source: string) => {
     updatePacketStatus(packet.id, PacketStatus.ANALYZING);
     try {
@@ -194,9 +202,14 @@ const App: React.FC = () => {
     setPackets(prev => prev.map(p => p.id === id ? { ...p, status } : p));
   };
 
+  const deletePacket = useCallback((id: string) => {
+    setPackets(prev => prev.filter(p => p.id !== id));
+    addLog(`Signal ${id.slice(0, 4)} Purged`, "WARNING", "Manual record deletion");
+  }, [addLog]);
+
   const downloadSession = () => {
     const sessionData = {
-      version: "1.2.0",
+      version: "1.3.0",
       timestamp: Date.now(),
       packetCount: packets.length,
       packets: packets.map(p => ({
@@ -206,7 +219,6 @@ const App: React.FC = () => {
           : p.rawContent
       }))
     };
-    
     const blob = new Blob([JSON.stringify(sessionData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -216,25 +228,7 @@ const App: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    addLog("Database Exported", "SUCCESS");
   };
-
-  useEffect(() => {
-    (window as any).Winky = {
-      ingest: (data: any, label?: string) => {
-        const payload = typeof data === 'object' ? JSON.stringify(data) : String(data);
-        handleDataReceived(PacketSource.GLOBAL_API, payload, label || 'Winky.ingest() Injection');
-        return { status: 'recorded', timestamp: Date.now() };
-      },
-      getStatus: () => ({
-        listening: true,
-        packets: packets.length,
-        version: '1.2.0'
-      }),
-      config: config
-    };
-    return () => { delete (window as any).Winky; }
-  }, [packets.length, config, handleDataReceived]);
 
   const filteredPackets = useMemo(() => {
     return packets.filter(p => {
@@ -287,6 +281,9 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-full bg-winky-bg text-winky-text font-sans flex flex-col overflow-hidden transition-colors duration-300">
+      {/* High-Speed Stealth Overlay */}
+      {isStealthMode && <StealthPulse status={stealthStatus} onComplete={() => setIsStealthMode(false)} />}
+
       <nav className="shrink-0 bg-winky-card/80 backdrop-blur-md border-b border-winky-border">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -295,7 +292,7 @@ const App: React.FC = () => {
              </div>
              <div>
                <h1 className="text-xl font-bold text-winky-text tracking-tight">Winky</h1>
-               <p className="text-[10px] font-bold text-winky-pink uppercase tracking-widest">Universal Database v1.2</p>
+               <p className="text-[10px] font-bold text-winky-pink uppercase tracking-widest">Universal Database v1.3</p>
              </div>
           </div>
           
@@ -344,24 +341,6 @@ const App: React.FC = () => {
                        <button onClick={() => setConfig(c => ({...c, theme: 'SYSTEM'}))} className={`flex-1 py-2 rounded-lg border flex items-center justify-center gap-2 text-xs font-bold ${config.theme === 'SYSTEM' ? 'bg-winky-blue text-white' : 'bg-winky-bg text-winky-text-soft'}`}><Monitor className="w-4 h-4" /> System</button>
                     </div>
                  </div>
-                 <div>
-                    <h3 className="text-xs font-bold text-winky-text-soft uppercase mb-3 tracking-wider">Parameter Alias Mapping</h3>
-                    <div className="bg-winky-bg p-4 rounded-xl border border-winky-border space-y-3">
-                       <div className="flex gap-2">
-                          <input placeholder="Original Key" className="flex-1 text-xs p-2 rounded border border-winky-border bg-white dark:bg-slate-800" value={newAliasKey} onChange={(e) => setNewAliasKey(e.target.value)} />
-                          <input placeholder="Display Alias" className="flex-1 text-xs p-2 rounded border border-winky-border bg-white dark:bg-slate-800" value={newAliasValue} onChange={(e) => setNewAliasValue(e.target.value)} />
-                          <button onClick={() => { if (newAliasKey && newAliasValue) { handleAliasChange('add', newAliasKey, newAliasValue); setNewAliasKey(''); setNewAliasValue(''); } }} className="px-3 bg-winky-blue text-white rounded text-xs font-bold">Add</button>
-                       </div>
-                       <div className="space-y-1">
-                          {Object.entries(config.parameterAliases).map(([key, alias]) => (
-                             <div key={key} className="flex items-center justify-between text-xs bg-white dark:bg-slate-800 p-2 rounded border border-winky-border">
-                                <span><code className="text-winky-pink">{key}</code> → <b>{alias}</b></span>
-                                <button onClick={() => handleAliasChange('remove', key)} className="text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>
-                             </div>
-                          ))}
-                       </div>
-                    </div>
-                 </div>
                  <div className="flex items-center justify-between bg-winky-bg p-3 rounded-lg border border-winky-border">
                     <div>
                       <span className="text-sm text-winky-text font-bold block">Auto-Scan URL Parameters</span>
@@ -369,14 +348,6 @@ const App: React.FC = () => {
                     </div>
                     <button onClick={() => setConfig(c => ({...c, autoScanUrlParams: !c.autoScanUrlParams}))} className={`w-10 h-5 rounded-full p-0.5 transition-colors ${config.autoScanUrlParams ? 'bg-winky-blue' : 'bg-slate-300'}`}>
                       <div className={`w-4 h-4 rounded-full bg-white transition-transform ${config.autoScanUrlParams ? 'translate-x-5' : 'translate-x-0'}`} />
-                    </button>
-                 </div>
-                 <div className="pt-4">
-                    <button 
-                      onClick={clearDatabase}
-                      className="w-full bg-red-50 text-red-600 border border-red-200 font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-red-100 transition-colors"
-                    >
-                      <Trash className="w-4 h-4" /> Purge Local Database
                     </button>
                  </div>
               </div>
@@ -414,7 +385,6 @@ const App: React.FC = () => {
                   <button 
                     onClick={downloadSession}
                     className="px-4 py-2.5 bg-winky-text text-winky-bg rounded-xl font-bold text-xs flex items-center gap-2 hover:opacity-90 transition-opacity whitespace-nowrap shadow-md"
-                    title="Export database to JSON"
                   >
                     <Save className="w-4 h-4" /> Save Database
                   </button>
