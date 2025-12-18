@@ -1,10 +1,10 @@
 
 import React, { useState } from 'react';
-import { Code2, Terminal, Wifi, Copy, BookOpen, Ghost, Zap, Monitor, EyeOff } from 'lucide-react';
+import { Code2, Terminal, Wifi, Copy, BookOpen, Ghost, Zap, Monitor, EyeOff, Radio } from 'lucide-react';
 
 const LANGUAGES = [
-  { id: 'STEALTH', label: 'Beacon Function', color: 'text-emerald-400' },
-  { id: 'RELAY', label: 'Server Relay', color: 'text-winky-pink' },
+  { id: 'SILENT', label: 'Silent Beacon', color: 'text-emerald-400' },
+  { id: 'FETCH', label: 'Background Fetch', color: 'text-winky-blue' },
   { id: 'JS', label: 'Vanilla JS', color: 'text-yellow-400' },
   { id: 'NODE', label: 'Node.js', color: 'text-green-400' },
   { id: 'PYTHON', label: 'Python', color: 'text-blue-400' },
@@ -12,8 +12,7 @@ const LANGUAGES = [
 ];
 
 export const IntegrationGenerator: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<string>('STEALTH');
-  const [mode, setMode] = useState<'STANDARD' | 'STEALTH'>('STEALTH');
+  const [activeTab, setActiveTab] = useState<string>('SILENT');
   const [copied, setCopied] = useState(false);
 
   const copyCode = (code: string) => {
@@ -24,66 +23,52 @@ export const IntegrationGenerator: React.FC = () => {
 
   const getIntegrationCode = () => {
     const origin = window.location.origin;
-    const headlessFlag = mode === 'STEALTH' ? '&headless=true' : '';
     
     switch (activeTab) {
-      case 'STEALTH':
-        return `// --- Universal Ingestion Beacon ---
-function winkyBeacon(data) {
-  const payload = typeof data === 'object' ? JSON.stringify(data) : String(data);
-  const url = \`\${origin}/?payload=\${encodeURIComponent(payload)}${headlessFlag}\`;
-  
-  // High-fidelity delivery attempts:
-  if (navigator.sendBeacon) {
-    navigator.sendBeacon(url);
-  } else {
-    const img = new Image();
-    img.src = url;
-  }
-}
+      case 'SILENT':
+        return `// 100% Background Delivery (No Popup, No Redirect)
+// Uses the standard Winky Background Proxy
+const payload = { event: "ping", user: "anonymous" };
+navigator.sendBeacon(
+  '${origin}/ingest', 
+  JSON.stringify(payload)
+);`;
 
-winkyBeacon({ event: "system_heartbeat", status: "ok" });`;
-
-      case 'RELAY':
-        return `// Save as 'winky-relay.js'
-const http = require('http');
-const { exec } = require('child_process');
-
-http.createServer((req, res) => {
-  if (req.method === 'POST') {
-    let body = '';
-    req.on('data', c => body += c);
-    req.on('end', () => {
-       const url = \`${origin}/?payload=\${encodeURIComponent(body)}${headlessFlag}\`;
-       const start = (process.platform == 'darwin'? 'open': process.platform == 'win32'? 'start': 'xdg-open');
-       exec(\`\${start} "\${url}"\`);
-       res.end('Ingest Triggered');
-    });
-  }
-}).listen(3000);`;
+      case 'FETCH':
+        return `// Background Fetch - Instantly updates active Winky tabs
+fetch('${origin}/ingest', {
+  method: 'POST',
+  body: 'Raw Background Signal',
+  mode: 'no-cors' // Allows cross-origin firing
+});`;
 
       case 'JS':
-        return `// Native Window Method
-const data = { msg: "Hello from JS" };
-const url = \`${origin}/?payload=\${encodeURIComponent(JSON.stringify(data))}${headlessFlag}\`;
-window.open(url, ${mode === 'STEALTH' ? "'winky_frame'" : "'_blank'"});`;
+        return `// Direct URL Parameter Ingest
+const data = "Hello_World";
+const url = \`${origin}/?payload=\${encodeURIComponent(data)}\`;
+// Note: This navigates. Use SILENT or FETCH tab for no-redirect.
+window.location.href = url;`;
       
       case 'NODE':
-        return `const { exec } = require('child_process');
-const payload = encodeURIComponent("Server_Log_Entry");
-const url = \`${origin}/?payload=\${payload}${headlessFlag}\`;
+        return `// Send data from any Node backend
+const https = require('https');
+const data = JSON.stringify({ server: "production", status: "ok" });
 
-exec(\`\${process.platform == 'darwin'? 'open': 'start'} \${url}\`);`;
+const req = https.request({
+  hostname: '${new URL(origin).hostname}',
+  path: '/ingest',
+  method: 'POST'
+});
+req.write(data);
+req.end();`;
 
       case 'PYTHON':
-        return `import webbrowser, urllib.parse
-data = "Python_Signal"
-url = f"${origin}/?payload={urllib.parse.quote(data)}${headlessFlag}"
-webbrowser.open(url)`;
+        return `import requests
+requests.post('${origin}/ingest', data='Python Background Signal')`;
       
       case 'CURL':
-        return `# cURL Trigger
-xdg-open "${origin}/?payload=Shell_Command${headlessFlag}"`;
+        return `# Fire and forget from shell
+curl -X POST -d "Shell Signal" ${origin}/ingest`;
 
       default:
         return '// Select a vector.';
@@ -95,26 +80,11 @@ xdg-open "${origin}/?payload=Shell_Command${headlessFlag}"`;
         <div className="bg-slate-950 px-6 py-4 border-b border-slate-800">
           <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
             <div className="flex items-center gap-3">
-              <Ghost className="w-5 h-5 text-emerald-400" />
+              <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
               <div>
                  <h4 className="font-black text-slate-200 text-xs uppercase tracking-[0.2em]">Universal_Protocols</h4>
-                 <p className="text-[9px] font-bold text-slate-500">Pick your integration vector</p>
+                 <p className="text-[9px] font-bold text-slate-500">Pick your background injection vector</p>
               </div>
-            </div>
-            
-            <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800">
-               <button 
-                onClick={() => setMode('STANDARD')}
-                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${mode === 'STANDARD' ? 'bg-slate-800 text-white border border-slate-700' : 'text-slate-500'}`}
-               >
-                 <Monitor className="w-3 h-3" /> Standard
-               </button>
-               <button 
-                onClick={() => setMode('STEALTH')}
-                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${mode === 'STEALTH' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-slate-500'}`}
-               >
-                 <EyeOff className="w-3 h-3" /> Stealth
-               </button>
             </div>
           </div>
           
@@ -148,8 +118,9 @@ xdg-open "${origin}/?payload=Shell_Command${headlessFlag}"`;
         </div>
         <div className="bg-slate-950/50 px-6 py-3 text-[9px] font-bold text-slate-500 border-t border-slate-800 flex items-center gap-2 uppercase tracking-widest">
            <Terminal className="w-3.5 h-3.5" />
-           {mode === 'STEALTH' ? 'Stealth mode triggers self-closing background sessions.' : 'Standard mode opens a visible browser instance.'}
+           {activeTab === 'SILENT' || activeTab === 'FETCH' ? '100% background delivery. No page reload required.' : 'Standard delivery method.'}
         </div>
       </div>
   );
 };
+
