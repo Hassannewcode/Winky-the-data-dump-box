@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { UniversalReceiver } from './components/UniversalReceiver';
 import { PacketView } from './components/PacketView';
@@ -7,8 +8,9 @@ import { DataVisualizer } from './components/DataVisualizer';
 import { ClipboardHistory } from './components/ClipboardHistory';
 import { UrlInspector } from './components/UrlInspector';
 import { DataPacket, PacketSource, PacketStatus, FilterType, SignalLogEntry, SystemConfig } from './types';
-import { analyzeDataPacket } from './services/systemAnalysis';
-import { Search, Database, Globe2, Inbox, Activity, BookOpen, Settings, X, Save, LayoutDashboard, Server, Moon, Sun, Monitor, Plus, Trash2, Link2, Tag, ArrowRight, Download, Trash } from 'lucide-react';
+// Updated to use the AI-powered geminiService for analysis
+import { analyzeDataPacket } from './services/geminiService';
+import { Search, Database, Globe2, Inbox, Activity, BookOpen, Settings, X, Save, LayoutDashboard, Server, Moon, Sun, Monitor, Plus, Trash2, Link2, Tag, ArrowRight, Download, Trash, Ghost } from 'lucide-react';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -20,7 +22,6 @@ const STORAGE_KEYS = {
 };
 
 const App: React.FC = () => {
-  // Load initial state from LocalStorage for "Database" persistence
   const [packets, setPackets] = useState<DataPacket[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.PACKETS);
     return saved ? JSON.parse(saved) : [];
@@ -40,10 +41,10 @@ const App: React.FC = () => {
     const saved = localStorage.getItem(STORAGE_KEYS.CONFIG);
     return saved ? JSON.parse(saved) : {
       autoAnalyze: true,
-      maxRetention: 500, // Increased for database feel
+      maxRetention: 500,
       notifications: true,
       theme: 'LIGHT',
-      autoScanUrlParams: true, // Default to true for "Scan Everything"
+      autoScanUrlParams: true,
       parameterAliases: {},
       urlFilters: {
           enabled: false,
@@ -61,7 +62,6 @@ const App: React.FC = () => {
   const [newAliasKey, setNewAliasKey] = useState('');
   const [newAliasValue, setNewAliasValue] = useState('');
 
-  // --- Persistence Listeners ---
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.PACKETS, JSON.stringify(packets));
   }, [packets]);
@@ -78,7 +78,6 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(config));
   }, [config]);
 
-  // --- Keyboard Shortcuts ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -98,27 +97,17 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // --- Theme Application ---
   useEffect(() => {
     const applyTheme = () => {
       const root = document.documentElement;
       let isDark = false;
       if (config.theme === 'DARK') isDark = true;
       else if (config.theme === 'SYSTEM') isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      
       if (isDark) root.classList.add('dark');
       else root.classList.remove('dark');
     };
     applyTheme();
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = () => { if(config.theme === 'SYSTEM') applyTheme(); };
-    mediaQuery.addEventListener('change', handler);
-    return () => mediaQuery.removeEventListener('change', handler);
   }, [config.theme]);
-
-  useEffect(() => {
-    addLog("Winky Singularity Initialized", "INFO", `Database Status: ${packets.length} signals recovered`);
-  }, []);
 
   const addLog = useCallback((message: string, type: SignalLogEntry['type'], detail?: string) => {
     setLogs(prev => [...prev, {
@@ -226,6 +215,16 @@ const App: React.FC = () => {
         handleDataReceived(PacketSource.GLOBAL_API, payload, label || 'Winky.ingest() Injection');
         return { status: 'recorded', timestamp: Date.now() };
       },
+      stealthInject: (data: any) => {
+        const payload = typeof data === 'object' ? JSON.stringify(data) : String(data);
+        const iframe = document.createElement('iframe');
+        iframe.name = 'winky_stealth_frame';
+        iframe.style.display = 'none';
+        iframe.src = `${window.location.origin}/?payload=${encodeURIComponent(payload)}&headless=true`;
+        document.body.appendChild(iframe);
+        setTimeout(() => iframe.remove(), 5000);
+        return { status: 'stealth_deployed', timestamp: Date.now() };
+      },
       getStatus: () => ({
         listening: true,
         packets: packets.length,
@@ -255,7 +254,8 @@ const App: React.FC = () => {
       const k = 1024;
       const sizes = ['B', 'KB', 'MB', 'GB'];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      // FIXED: Using template literals and explicit numeric operations to avoid TS arithmetic errors on line 264
+      return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
     };
     return { 
       totalVolume: formatBytes(totalVolume), 
@@ -391,7 +391,7 @@ const App: React.FC = () => {
         <main className="flex-1 overflow-y-auto w-full scrollbar-thin scrollbar-thumb-winky-border">
           <div className="max-w-7xl mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
             <section className="lg:col-span-4 space-y-6">
-               <UniversalReceiver onDataReceived={handleDataReceived} onLog={addLog} onOpenDocs={() => setCurrentView('DOCS')} urlFilters={config.urlFilters} autoScanUrlParams={config.autoScanUrlParams} parameterAliases={config.parameterAliases} />
+               <UniversalReceiver onDataReceived={handleDataReceived} onLog={addLog} onOpenDocs={() => setCurrentView('DASHBOARD')} urlFilters={config.urlFilters} autoScanUrlParams={config.autoScanUrlParams} parameterAliases={config.parameterAliases} />
                <ClipboardHistory history={clipboardHistory} onReIngest={(content) => handleDataReceived(PacketSource.CLIPBOARD, content, 'Database Recall')} onClear={() => setClipboardHistory([])} />
                <SignalLog logs={logs} />
             </section>
