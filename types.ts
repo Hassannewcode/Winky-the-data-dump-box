@@ -7,7 +7,8 @@ export enum PacketSource {
   MANUAL_INPUT = 'MANUAL_INPUT',
   BROADCAST = 'BROADCAST_CHANNEL',
   GLOBAL_API = 'GLOBAL_API',
-  STEALTH_BEACON = 'STEALTH_BEACON'
+  STEALTH_BEACON = 'STEALTH_BEACON',
+  BACKGROUND_PROXY = 'BACKGROUND_PROXY'
 }
 
 export enum PacketStatus {
@@ -80,3 +81,4 @@ export interface WinkyGlobal {
   getStatus: () => { listening: boolean; packets: number; version: string };
   config: SystemConfig;
 }
+
